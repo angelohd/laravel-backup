@@ -1,0 +1,33 @@
+{
+    "name": "angelohd/laravel-backup",
+    "description": "Biblioteca Laravel para realizar backup automático da base de dados.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ângelo N. Mwadiavita",
+            "email": "amwadiavita@ndaysystem.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "angelohd\\Backup\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "angelohd\\Backup\\BackupServiceProvider"
+            ]
+        },
+        "social": {
+            "github": "https://github.com/angelohd",
+            "linkedin": "https://www.linkedin.com/in/angelo-mwadiavita-446843183/"
+        }
+    },
+    "require": {
+        "php": "^8.0",
+        "illuminate/support": ">=10.0 <13.0",
+        "illuminate/contracts": ">=10.0 <14.0"
+    }
+}
