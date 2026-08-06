@@ -20,14 +20,12 @@ class MySqlRunner
 
     public static function isAvailable(): bool
     {
-        $checked = [];
-
         if (PHP_OS_FAMILY === 'Windows') {
-            exec('where mysqldump 2>nul', resultCode: $mysqldumpResult);
-            exec('where mysql 2>nul', resultCode: $mysqlResult);
+            exec('where mysqldump 2>nul', result_code: $mysqldumpResult);
+            exec('where mysql 2>nul', result_code: $mysqlResult);
         } else {
-            exec('which mysqldump 2>/dev/null', resultCode: $mysqldumpResult);
-            exec('which mysql 2>/dev/null', resultCode: $mysqlResult);
+            exec('which mysqldump 2>/dev/null', result_code: $mysqldumpResult);
+            exec('which mysql 2>/dev/null', result_code: $mysqlResult);
         }
 
         return $mysqldumpResult === 0 && $mysqlResult === 0;

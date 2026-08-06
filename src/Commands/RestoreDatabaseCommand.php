@@ -70,17 +70,21 @@ class RestoreDatabaseCommand extends Command
         $runner = new MySqlRunner($connection, $this);
         $defaultsArg = $runner->getDefaultsFileArg();
 
+        $initCommands = $this->buildInitCommands();
+
         if ($isGzip) {
             $command = sprintf(
-                'gunzip < %s | mysql %s %s',
+                'gunzip < %s | mysql %s --init-command=%s %s',
                 escapeshellarg($file),
                 $defaultsArg,
+                escapeshellarg($initCommands),
                 escapeshellarg($targetDatabase)
             );
         } else {
             $command = sprintf(
-                'mysql %s %s < %s',
+                'mysql %s --init-command=%s %s < %s',
                 $defaultsArg,
+                escapeshellarg($initCommands),
                 escapeshellarg($targetDatabase),
                 escapeshellarg($file)
             );
@@ -95,6 +99,21 @@ class RestoreDatabaseCommand extends Command
 
         $this->error("Erro ao restaurar ficheiro na base de dados [{$targetDatabase}].");
         return Command::FAILURE;
+    }
+
+    private function buildInitCommands(): string
+    {
+        $commands = [];
+
+        if (config('angelohd-backup.restore.disable_foreign_key_checks', true)) {
+            $commands[] = 'SET FOREIGN_KEY_CHECKS = 0';
+        }
+
+        if (config('angelohd-backup.restore.disable_unique_checks', true)) {
+            $commands[] = 'SET UNIQUE_CHECKS = 0';
+        }
+
+        return implode('; ', $commands);
     }
 
     private function applyTimeout(): void

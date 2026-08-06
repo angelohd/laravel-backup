@@ -19,7 +19,10 @@ class PruneBackupsCommand extends Command
 
     public function handle(): int
     {
-        $olderThan = (int) ($this->option('older-than') ?: config('angelohd-backup.prune_older_than_days', 7));
+        $olderThanOption = $this->option('older-than');
+        $olderThan = $olderThanOption !== '' && $olderThanOption !== null
+            ? (int) $olderThanOption
+            : (int) config('angelohd-backup.prune_older_than_days', 7);
         $dryRun = $this->option('dry-run');
 
         if ($olderThan < 1) {
@@ -35,29 +38,8 @@ class PruneBackupsCommand extends Command
             return Command::SUCCESS;
         }
 
-        $folders = File::directories($backupPath);
-
-        if (empty($folders)) {
-            $this->warn('Nenhum backup encontrado.');
-            return Command::SUCCESS;
-        }
-
         $cutoffDate = now()->subDays($olderThan);
-        $toDelete = [];
-
-        foreach ($folders as $folder) {
-            $folderName = basename($folder);
-            $folderDate = $this->parseDateFromFolder($folderName);
-
-            if ($folderDate && $folderDate->lt($cutoffDate)) {
-                $size = $this->folderSize($folder);
-                $toDelete[] = [
-                    'folder' => $folder,
-                    'name' => $folderName,
-                    'size' => $size,
-                ];
-            }
-        }
+        $toDelete = $this->scanForEntries($backupPath, $cutoffDate);
 
         if (empty($toDelete)) {
             $this->info("Nenhum backup com mais de {$olderThan} dia(s) encontrado.");
@@ -92,7 +74,11 @@ class PruneBackupsCommand extends Command
 
         $deleted = 0;
         foreach ($toDelete as $item) {
-            File::deleteDirectory($item['folder']);
+            if ($item['type'] === 'zip') {
+                File::delete($item['path']);
+            } else {
+                File::deleteDirectory($item['path']);
+            }
             $deleted++;
             $this->info("Apagado: {$item['name']}");
         }
@@ -103,10 +89,45 @@ class PruneBackupsCommand extends Command
         return Command::SUCCESS;
     }
 
-    private function parseDateFromFolder(string $folderName): mixed
+    private function scanForEntries(string $backupPath, \Illuminate\Support\Carbon $cutoffDate): array
     {
-        if (preg_match('/^(\d{2})-(\d{2})-(\d{4})_(\d{2})-(\d{2})-(\d{2})$/', $folderName, $m)) {
-            return \DateTime::createFromFormat('d-m-Y H:i:s', "{$m[1]}-{$m[2]}-{$m[3]} {$m[4]}:{$m[5]}:{$m[6]}");
+        $toDelete = [];
+
+        foreach (File::directories($backupPath) as $folder) {
+            $folderName = basename($folder);
+            $folderDate = $this->parseDateFromName($folderName);
+
+            if ($folderDate && $folderDate->lt($cutoffDate)) {
+                $toDelete[] = [
+                    'path' => $folder,
+                    'name' => $folderName,
+                    'size' => $this->folderSize($folder),
+                    'type' => 'dir',
+                ];
+            }
+        }
+
+        foreach (File::glob($backupPath . DIRECTORY_SEPARATOR . '*.zip') as $zipFile) {
+            $zipName = basename($zipFile, '.zip');
+            $zipDate = $this->parseDateFromName($zipName);
+
+            if ($zipDate && $zipDate->lt($cutoffDate)) {
+                $toDelete[] = [
+                    'path' => $zipFile,
+                    'name' => basename($zipFile),
+                    'size' => filesize($zipFile),
+                    'type' => 'zip',
+                ];
+            }
+        }
+
+        return $toDelete;
+    }
+
+    private function parseDateFromName(string $name): ?\Illuminate\Support\Carbon
+    {
+        if (preg_match('/^(\d{2})-(\d{2})-(\d{4})_(\d{2})-(\d{2})-(\d{2})$/', $name, $m)) {
+            return \Illuminate\Support\Carbon::createFromFormat('d-m-Y H:i:s', "{$m[1]}-{$m[2]}-{$m[3]} {$m[4]}:{$m[5]}:{$m[6]}");
         }
 
         return null;

@@ -25,6 +25,19 @@ return [
         'single_transaction' => true,
         'routines' => true,
         'triggers' => true,
+        'max_allowed_packet' => '512M',
+        'net_buffer_length' => '16384',
+        'skip_lock_tables' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Opcoes de restore
+    |--------------------------------------------------------------------------
+    */
+    'restore' => [
+        'disable_foreign_key_checks' => true,
+        'disable_unique_checks' => true,
     ],
 
     /*
@@ -35,6 +48,7 @@ return [
     'compression' => [
         'enabled' => false,
         'command' => 'gzip',
+        'zip' => false,
     ],
 
     /*

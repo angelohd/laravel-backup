@@ -25,31 +25,21 @@ class ListBackupsCommand extends Command
             return Command::SUCCESS;
         }
 
-        $folders = File::directories($backupPath);
+        $rows = [];
+        $entries = $this->collectBackupEntries($backupPath);
 
-        if (empty($folders)) {
+        if (empty($entries)) {
             $this->warn('Nenhum backup encontrado.');
             return Command::SUCCESS;
         }
 
-        rsort($folders);
+        uasort($entries, fn ($a, $b) => $b['name'] <=> $a['name']);
 
-        $rows = [];
-
-        foreach ($folders as $folder) {
-            $folderName = basename($folder);
-            $files = File::files($folder);
-            $sqlFiles = array_filter($files, fn ($f) => str_ends_with($f->getFilename(), '.sql') || str_ends_with($f->getFilename(), '.sql.gz'));
-
-            $totalSize = 0;
-            foreach ($files as $f) {
-                $totalSize += $f->getSize();
-            }
-
+        foreach ($entries as $entry) {
             $rows[] = [
-                'pasta' => $folderName,
-                'ficheiros' => count($sqlFiles),
-                'tamanho' => $this->formatSize($totalSize),
+                'pasta' => $entry['name'],
+                'ficheiros' => $entry['files'],
+                'tamanho' => $this->formatSize($entry['size']),
             ];
         }
 
@@ -60,5 +50,41 @@ class ListBackupsCommand extends Command
         $this->info('Total: ' . count($rows) . ' backup(s).');
 
         return Command::SUCCESS;
+    }
+
+    private function collectBackupEntries(string $backupPath): array
+    {
+        $entries = [];
+
+        foreach (File::directories($backupPath) as $folder) {
+            $folderName = basename($folder);
+            $files = File::files($folder);
+            $sqlFiles = array_filter($files, fn ($f) => str_ends_with($f->getFilename(), '.sql') || str_ends_with($f->getFilename(), '.sql.gz'));
+
+            $totalSize = 0;
+            foreach ($files as $f) {
+                $totalSize += $f->getSize();
+            }
+
+            $entries[] = [
+                'name' => $folderName,
+                'path' => $folder,
+                'files' => count($sqlFiles),
+                'size' => $totalSize,
+                'type' => 'dir',
+            ];
+        }
+
+        foreach (File::glob($backupPath . DIRECTORY_SEPARATOR . '*.zip') as $zipFile) {
+            $entries[] = [
+                'name' => basename($zipFile),
+                'path' => $zipFile,
+                'files' => '-',
+                'size' => filesize($zipFile),
+                'type' => 'zip',
+            ];
+        }
+
+        return $entries;
     }
 }
