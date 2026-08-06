@@ -1,76 +1,134 @@
 <?php
 
+declare(strict_types=1);
+
 namespace angelohd\Backup\Commands;
 
+use angelohd\Backup\Concerns\ConfirmsInProduction;
+use angelohd\Backup\Support\MySqlConnectionResolver;
+use angelohd\Backup\Support\MySqlRunner;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\File;
 
 class BackupDatabaseCommand extends Command
 {
-    protected $signature = 'angelohd:backup-database {--path=}';
-    protected $description = 'Cria backup das bases de dados configuradas em config/database.php.';
-    public function handle()
-    {
-        $pasta_bkp = date('Y-m-d_H-i-s');
-        $this->info('🔄 Iniciando backup das bases de dados configuradas...');
+    use ConfirmsInProduction;
 
-        $connections = Config::get('database.connections', []);
-        $backupDir = $this->option('path') ?? storage_path('app/backups-databases/' . $pasta_bkp);
+    protected $signature = 'angelohd:backup-database {--path=} {--connection=} {--gzip}';
+    protected $description = 'Cria backup das bases de dados configuradas em config/database.php.';
+
+    public function handle(): int
+    {
+        if (!MySqlRunner::isAvailable()) {
+            $this->error('mysqldump ou mysql nao encontrados no PATH.');
+            return Command::FAILURE;
+        }
+
+        if (!$this->confirmDestructiveOperation('Tem a certeza que deseja criar backup em producao?')) {
+            return Command::SUCCESS;
+        }
+
+        $timestamp = date('d-m-Y_H-i-s');
+        $this->info('Iniciando backup das bases de dados configuradas...');
+
+        $backupPath = $this->option('path')
+            ?: config('angelohd-backup.default_backup_path', storage_path('app/backups-databases'));
+
+        $backupDir = $backupPath . DIRECTORY_SEPARATOR . $timestamp;
         File::ensureDirectoryExists($backupDir);
 
+        $connections = MySqlConnectionResolver::resolve($this->option('connection') ?: null);
+
+        if (empty($connections)) {
+            $this->warn('Nenhuma conexao MySQL/MariaDB encontrada.');
+            return Command::FAILURE;
+        }
+
+        $this->applyTimeout();
+        $useGzip = $this->option('gzip') || config('angelohd-backup.compression.enabled', false);
+
         $count = 0;
+        $errors = 0;
 
-        foreach ($connections as $name => $config) {
-            $driver = $config['driver'] ?? null;
-            if (!in_array($driver, ['mysql', 'mariadb'])) {
-                $this->warn("⏭️ Ignorando conexão [$name] (driver [$driver] não é suportado).");
-                continue;
-            }
+        foreach ($connections as $name => $connection) {
+            $database = $connection['database'];
+            $ext = $useGzip ? '.sql.gz' : '.sql';
+            $fileName = "{$name}{$ext}";
+            $filePath = $backupDir . DIRECTORY_SEPARATOR . $fileName;
 
-            $database = $config['database'];
-            $username = $config['username'];
-            $password = $config['password'];
-            $port = $config['port'];
-            $host = $config['host'] ?? '127.0.0.1';
+            $this->comment("Executando backup da base de dado: {$database} aguarde...");
 
-            $fileName = "{$name}_{$database}.sql";
-            $filePath = $backupDir . '/' . $fileName;
+            $runner = new MySqlRunner($connection, $this);
+            $defaultsArg = $runner->getDefaultsFileArg();
 
-            if ($driver === 'mysql' || $driver === 'mariadb') {
-                $this->comment("ℹ️ Executando backup da base de dado: {$database} aguarde...");
+            $mysqldumpOptions = $this->buildMysqldumpOptions();
+
+            if ($useGzip) {
                 $command = sprintf(
-                    'mysqldump --user=%s --password=%s --host=%s --port=%s %s > %s',
-                    escapeshellarg($username),
-                    escapeshellarg($password),
-                    escapeshellarg($host),
-                    escapeshellarg($port),
+                    'mysqldump %s %s %s | gzip > %s',
+                    $defaultsArg,
+                    $mysqldumpOptions,
                     escapeshellarg($database),
                     escapeshellarg($filePath)
                 );
+            } else {
+                $command = sprintf(
+                    'mysqldump %s %s %s > %s',
+                    $defaultsArg,
+                    $mysqldumpOptions,
+                    escapeshellarg($database),
+                    escapeshellarg($filePath)
+                );
+            }
 
-                if (PHP_OS_FAMILY === 'Windows') {
-                    exec($command . ' 2>nul', $output, $result);
-                } else {
-                    exec($command . ' 2>/dev/null', $output, $result);
-                }
-                //exec($command, $output, $result);
+            $result = $runner->execute($command);
 
-                if ($result === 0) {
-                    $count++;
-                    $this->info("✅ Backup criado: {$fileName}");
-                } else {
-                    $this->error("⚠️ Erro ao criar backup da base de dados: {$database}");
-                }
+            if ($result === 0) {
+                $count++;
+                $this->info("Backup criado: {$fileName}");
+            } else {
+                $errors++;
+                $this->error("Erro ao criar backup da base de dados: {$database}");
             }
         }
 
         if ($count > 0) {
-            $this->info("\n🎉 Backup concluído com sucesso! Total: {$count} base(s) de dados.");
+            $this->newLine();
+            $this->info("Backup concluido com sucesso! Total: {$count} base(s) de dados.");
+            $this->info("Directorio: {$backupDir}");
         } else {
-            $this->warn("Nenhuma base de dados foi exportada.");
+            $this->warn('Nenhuma base de dados foi exportada.');
         }
 
-        return Command::SUCCESS;
+        return $errors > 0 ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    private function buildMysqldumpOptions(): string
+    {
+        $options = '';
+
+        if (config('angelohd-backup.mysqldump.single_transaction', true)) {
+            $options .= ' --single-transaction';
+        }
+
+        if (config('angelohd-backup.mysqldump.routines', true)) {
+            $options .= ' --routines';
+        }
+
+        if (config('angelohd-backup.mysqldump.triggers', true)) {
+            $options .= ' --triggers';
+        }
+
+        return $options;
+    }
+
+    private function applyTimeout(): void
+    {
+        $timeout = (int) config('angelohd-backup.timeout', 0);
+        if ($timeout > 0) {
+            set_time_limit($timeout);
+        } else {
+            set_time_limit(0);
+        }
     }
 }

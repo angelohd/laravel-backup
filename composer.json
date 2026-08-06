@@ -1,11 +1,20 @@
 {
     "name": "angelohd/laravel-backup",
-    "description": "Biblioteca Laravel para realizar backup automático da base de dados.",
+    "description": "Biblioteca Laravel para realizar backup automatico da base de dados.",
     "type": "library",
+    "keywords": [
+        "laravel",
+        "backup",
+        "database",
+        "mysql",
+        "mariadb",
+        "dump",
+        "restore"
+    ],
     "license": "MIT",
     "authors": [
         {
-            "name": "Ângelo N. Mwadiavita",
+            "name": "Angelo N. Mwadiavita",
             "email": "amwadiavita@ndaysystem.com"
         }
     ],
@@ -27,7 +36,10 @@
     },
     "require": {
         "php": "^8.0",
-        "illuminate/support": ">=10.0 <13.0",
-        "illuminate/contracts": ">=10.0 <14.0"
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/contracts": "^10.0 || ^11.0 || ^12.0"
+    },
+    "suggest": {
+        "ext-zlib": "Para compressao gzip dos backups."
     }
 }
