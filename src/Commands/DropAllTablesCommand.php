@@ -5,80 +5,98 @@ declare(strict_types=1);
 namespace angelohd\Backup\Commands;
 
 use angelohd\Backup\Concerns\ConfirmsInProduction;
-use angelohd\Backup\Support\MySqlConnectionResolver;
-use angelohd\Backup\Support\MySqlRunner;
-use Illuminate\Console\Command;
+use angelohd\Backup\Exceptions\BackupException;
+use angelohd\Backup\Support\MySqlClient;
 
-class DropAllTablesCommand extends Command
+class DropAllTablesCommand extends BaseCommand
 {
     use ConfirmsInProduction;
 
-    protected $signature = 'angelohd:drop-all-tables {--connection=} {--force}';
-    protected $description = 'Apaga todas as tabelas de uma conexao especifica.';
+    protected $signature = 'angelohd:drop-all-tables
+        {--connection= : Conexao cuja base de dados sera limpa}
+        {--force : Nao pedir confirmacao}';
+
+    protected $description = 'Apaga todas as tabelas e views de uma conexao especifica.';
 
     public function handle(): int
     {
-        if (!MySqlRunner::isAvailable()) {
-            $this->error('mysqldump e mysql nao encontrados no PATH.');
-            return Command::FAILURE;
+        if (!$this->requireBinaries('mysql')) {
+            return self::FAILURE;
         }
 
-        $specificConnection = $this->option('connection');
+        $connectionName = $this->option('connection');
 
-        if (!$specificConnection) {
+        if (!$connectionName) {
             $this->error('Especifique a conexao com --connection=');
-            return Command::FAILURE;
+
+            return self::FAILURE;
         }
 
-        if (!$this->confirmDestructiveOperation("Tem a certeza que deseja APAGAR TODAS AS TABELAS da conexao [{$specificConnection}]?")) {
-            return Command::SUCCESS;
+        if (($connections = $this->connections($connectionName)) === null) {
+            return self::FAILURE;
         }
 
-        $connections = MySqlConnectionResolver::resolve($specificConnection);
-
-        if (!isset($connections[$specificConnection])) {
-            $this->error("Conexao [{$specificConnection}] nao encontrada ou invalida.");
-            return Command::FAILURE;
-        }
-
-        $connection = $connections[$specificConnection];
+        $connection = $connections[$connectionName];
         $database = $connection['database'];
 
-        $this->applyTimeout();
-        $this->warn("Apagando todas as tabelas da base de dados [{$database}]...");
-
-        $runner = new MySqlRunner($connection, $this);
-        $defaultsArg = $runner->getDefaultsFileArg();
-
-        $filterCmd = PHP_OS_FAMILY === 'Windows' ? 'findstr "^DROP"' : 'grep "^DROP"';
-
-        $command = sprintf(
-            'mysqldump %s --no-data --add-drop-table %s 2>/dev/null | %s | mysql %s %s',
-            $defaultsArg,
-            escapeshellarg($database),
-            $filterCmd,
-            $defaultsArg,
-            escapeshellarg($database)
-        );
-
-        $result = $runner->execute($command);
-
-        if ($result === 0) {
-            $this->info("Todas as tabelas da base de dados [{$database}] foram apagadas.");
-            return Command::SUCCESS;
+        if (!$this->confirmDestructiveOperation("Tem a certeza que deseja APAGAR TODAS AS TABELAS da base de dados [{$database}] (conexao {$connectionName})?")) {
+            return self::SUCCESS;
         }
 
-        $this->error("Erro ao apagar tabelas da base de dados [{$database}].");
-        return Command::FAILURE;
+        $client = new MySqlClient($connection);
+
+        try {
+            $objects = $client->select(
+                'SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = '
+                . MySqlClient::quoteString($database)
+            );
+
+            if ($objects === []) {
+                $this->info("A base de dados [{$database}] ja nao tem tabelas.");
+
+                return self::SUCCESS;
+            }
+
+            $this->warn('A apagar ' . count($objects) . " tabela(s)/view(s) da base de dados [{$database}]...");
+            $client->statement($this->dropStatements($objects), $database);
+        } catch (BackupException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
+        $this->info("Todas as tabelas da base de dados [{$database}] foram apagadas.");
+
+        return self::SUCCESS;
     }
 
-    private function applyTimeout(): void
+    /**
+     * @param  array<int, string[]>  $objects  pares [nome, tipo]
+     */
+    private function dropStatements(array $objects): string
     {
-        $timeout = (int) config('angelohd-backup.timeout', 0);
-        if ($timeout > 0) {
-            set_time_limit($timeout);
-        } else {
-            set_time_limit(0);
+        $views = [];
+        $tables = [];
+
+        foreach ($objects as [$name, $type]) {
+            if ($type === 'VIEW') {
+                $views[] = MySqlClient::quoteIdentifier($name);
+            } else {
+                $tables[] = MySqlClient::quoteIdentifier($name);
+            }
         }
+
+        // Sem FOREIGN_KEY_CHECKS=0 a ordem das tabelas faria o DROP falhar.
+        $sql = "SET FOREIGN_KEY_CHECKS=0;\n";
+
+        if ($views !== []) {
+            $sql .= 'DROP VIEW IF EXISTS ' . implode(', ', $views) . ";\n";
+        }
+
+        if ($tables !== []) {
+            $sql .= 'DROP TABLE IF EXISTS ' . implode(', ', $tables) . ";\n";
+        }
+
+        return $sql . "SET FOREIGN_KEY_CHECKS=1;\n";
     }
 }

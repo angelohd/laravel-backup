@@ -1,11 +1,18 @@
 <?php
 
+declare(strict_types=1);
+
 return [
 
     /*
     |--------------------------------------------------------------------------
-    | Caminho padrao para backups
+    | Caminho padrão para backups
     |--------------------------------------------------------------------------
+    |
+    | Cada backup é guardado numa pasta "AAAA-mm-dd_HH-ii-ss" (ou num ficheiro
+    | .zip com o mesmo nome) contendo um dump por conexão e um manifest.json
+    | com o checksum SHA-256 de cada ficheiro.
+    |
     */
     'default_backup_path' => storage_path('app/backups-databases'),
 
@@ -18,7 +25,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Opcoes do mysqldump
+    | Binários
+    |--------------------------------------------------------------------------
+    |
+    | Caminho para o mysqldump e o mysql, caso não estejam no PATH.
+    |
+    */
+    'binaries' => [
+        'mysqldump' => env('BACKUP_MYSQLDUMP_PATH', 'mysqldump'),
+        'mysql' => env('BACKUP_MYSQL_PATH', 'mysql'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Opções do mysqldump
     |--------------------------------------------------------------------------
     */
     'mysqldump' => [
@@ -32,48 +52,74 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Opcoes de restore
+    | Opções de restauro
     |--------------------------------------------------------------------------
+    |
+    | "strip_definers" remove as cláusulas DEFINER=`user`@`host` de views,
+    | triggers e rotinas, para que o dump possa ser restaurado por um
+    | utilizador diferente daquele que criou esses objectos.
+    |
     */
     'restore' => [
         'disable_foreign_key_checks' => true,
         'disable_unique_checks' => true,
+        'strip_definers' => true,
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Compressao
+    | Compressão
     |--------------------------------------------------------------------------
+    |
+    | "enabled" comprime cada dump com gzip (feito em PHP, funciona em Windows).
+    | "zip" agrupa a pasta do backup num único ficheiro .zip (requer ext-zip).
+    |
     */
     'compression' => [
         'enabled' => false,
-        'command' => 'gzip',
         'zip' => false,
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Limpeza automatica (prune)
+    | Cópia remota
+    |--------------------------------------------------------------------------
+    |
+    | Disks do Laravel (config/filesystems.php) para onde cada backup é
+    | enviado, por exemplo ['s3']. A cópia local é sempre mantida.
+    |
+    */
+    'disks' => [],
+
+    'remote_path' => 'backups-databases',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Limpeza automática (prune)
     |--------------------------------------------------------------------------
     */
     'prune_older_than_days' => 7,
 
     /*
     |--------------------------------------------------------------------------
-    | Timeout maximo em segundos (0 = sem limite)
+    | Timeout máximo em segundos por operação (0 = sem limite)
     |--------------------------------------------------------------------------
     */
     'timeout' => 0,
 
     /*
     |--------------------------------------------------------------------------
-    | Notificacoes (Slack, Email)
+    | Notificações (Slack, Email)
     |--------------------------------------------------------------------------
+    |
+    | "notify_on" aceita "failure" e/ou "success".
+    |
     */
     'notifications' => [
-        'enabled' => false,
-        'slack_webhook_url' => null,
-        'mail_to' => null,
+        'enabled' => env('BACKUP_NOTIFICATIONS', false),
+        'notify_on' => ['failure'],
+        'slack_webhook_url' => env('BACKUP_SLACK_WEBHOOK_URL'),
+        'mail_to' => env('BACKUP_MAIL_TO'),
     ],
 
 ];

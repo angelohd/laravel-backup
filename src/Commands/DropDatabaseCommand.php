@@ -5,82 +5,64 @@ declare(strict_types=1);
 namespace angelohd\Backup\Commands;
 
 use angelohd\Backup\Concerns\ConfirmsInProduction;
-use angelohd\Backup\Support\MySqlConnectionResolver;
-use angelohd\Backup\Support\MySqlRunner;
-use Illuminate\Console\Command;
+use angelohd\Backup\Exceptions\BackupException;
+use angelohd\Backup\Support\MySqlClient;
 
-class DropDatabaseCommand extends Command
+class DropDatabaseCommand extends BaseCommand
 {
     use ConfirmsInProduction;
 
-    protected $signature = 'angelohd:drop-database {database} {--connection=} {--force}';
-    protected $description = 'Apaga uma base de dados especifica de uma conexao.';
+    protected $signature = 'angelohd:drop-database
+        {database : Nome da base de dados}
+        {--connection= : Procurar apenas nesta conexao}
+        {--force : Nao pedir confirmacao}';
+
+    protected $description = 'Apaga uma base de dados configurada numa conexao.';
 
     public function handle(): int
     {
-        if (!MySqlRunner::isAvailable()) {
-            $this->error('mysql nao encontrado no PATH.');
-            return Command::FAILURE;
+        if (!$this->requireBinaries('mysql')) {
+            return self::FAILURE;
         }
 
-        $database = $this->argument('database');
-        $specificConnection = $this->option('connection');
+        $database = (string) $this->argument('database');
 
         if (!preg_match('/^[a-zA-Z0-9_-]+$/', $database)) {
             $this->error("Nome de base de dados invalido: [{$database}]");
-            return Command::FAILURE;
+
+            return self::FAILURE;
+        }
+
+        if (($connections = $this->connections($this->option('connection'))) === null) {
+            return self::FAILURE;
+        }
+
+        $matches = array_filter($connections, fn ($connection) => $connection['database'] === $database);
+
+        if ($matches === []) {
+            $this->warn("Base de dados [{$database}] nao encontrada em nenhuma conexao.");
+
+            return self::FAILURE;
         }
 
         if (!$this->confirmDestructiveOperation("Tem a certeza que deseja APAGAR a base de dados [{$database}]?")) {
-            return Command::SUCCESS;
+            return self::SUCCESS;
         }
 
-        $connections = MySqlConnectionResolver::resolve($specificConnection ?: null);
-        $this->applyTimeout();
+        $failed = false;
 
-        $count = 0;
+        foreach ($matches as $name => $connection) {
+            $this->warn("A apagar a base de dados [{$database}] na conexao [{$name}]...");
 
-        foreach ($connections as $name => $connection) {
-            if ($connection['database'] !== $database) {
-                continue;
-            }
-
-            $this->warn("Apagando base de dados [{$database}] na conexao [{$name}]...");
-
-            $runner = new MySqlRunner($connection, $this);
-            $defaultsArg = $runner->getDefaultsFileArg();
-
-            $command = sprintf(
-                'mysql %s -e %s',
-                $defaultsArg,
-                escapeshellarg("DROP DATABASE IF EXISTS `{$database}`")
-            );
-
-            $result = $runner->execute($command);
-
-            if ($result === 0) {
-                $count++;
+            try {
+                (new MySqlClient($connection))->statement('DROP DATABASE IF EXISTS ' . MySqlClient::quoteIdentifier($database));
                 $this->info("Base de dados [{$database}] apagada com sucesso.");
-            } else {
-                $this->error("Erro ao apagar base de dados [{$database}] na conexao [{$name}].");
+            } catch (BackupException $e) {
+                $failed = true;
+                $this->error($e->getMessage());
             }
         }
 
-        if ($count === 0) {
-            $this->warn("Base de dados [{$database}] nao encontrada em nenhuma conexao.");
-            return Command::FAILURE;
-        }
-
-        return Command::SUCCESS;
-    }
-
-    private function applyTimeout(): void
-    {
-        $timeout = (int) config('angelohd-backup.timeout', 0);
-        if ($timeout > 0) {
-            set_time_limit($timeout);
-        } else {
-            set_time_limit(0);
-        }
+        return $failed ? self::FAILURE : self::SUCCESS;
     }
 }

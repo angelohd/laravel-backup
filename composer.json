@@ -23,6 +23,11 @@
             "angelohd\\Backup\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "angelohd\\Backup\\Tests\\": "tests/"
+        }
+    },
     "extra": {
         "laravel": {
             "providers": [
@@ -35,11 +40,31 @@
         }
     },
     "require": {
-        "php": "^8.0",
-        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
-        "illuminate/contracts": "^10.0 || ^11.0 || ^12.0"
+        "php": "^8.1",
+        "ext-zlib": "*",
+        "illuminate/console": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/contracts": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/filesystem": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/process": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^2.9 || ^3.0",
+        "laravel/pint": "^1.13",
+        "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
+        "phpunit/phpunit": "^10.5 || ^11.0"
     },
     "suggest": {
-        "ext-zlib": "Para compressao gzip dos backups."
-    }
+        "ext-zip": "Para agrupar os backups num ficheiro ZIP (--zip)."
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "format": "pint"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

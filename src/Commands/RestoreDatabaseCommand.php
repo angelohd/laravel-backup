@@ -5,124 +5,213 @@ declare(strict_types=1);
 namespace angelohd\Backup\Commands;
 
 use angelohd\Backup\Concerns\ConfirmsInProduction;
-use angelohd\Backup\Support\MySqlConnectionResolver;
-use angelohd\Backup\Support\MySqlRunner;
-use Illuminate\Console\Command;
+use angelohd\Backup\Exceptions\BackupException;
+use angelohd\Backup\Support\BackupRepository;
+use angelohd\Backup\Support\DefinerFilter;
+use angelohd\Backup\Support\Manifest;
+use angelohd\Backup\Support\MySqlClient;
 use Illuminate\Support\Facades\File;
+use ZipArchive;
 
-class RestoreDatabaseCommand extends Command
+class RestoreDatabaseCommand extends BaseCommand
 {
     use ConfirmsInProduction;
 
-    protected $signature = 'angelohd:restore-database {file} {--connection=} {--database=} {--gzip} {--force}';
-    protected $description = 'Restaura um ficheiro .sql para uma base de dados.';
+    protected $signature = 'angelohd:restore-database
+        {file? : Ficheiro .sql ou .sql.gz}
+        {--connection= : Conexao de destino}
+        {--database= : Base de dados de destino}
+        {--latest : Usar o backup mais recente desta conexao}
+        {--path= : Pasta dos backups (com --latest)}
+        {--gzip : Forcar leitura como gzip}
+        {--create : Criar a base de dados se nao existir}
+        {--skip-verify : Nao verificar o checksum do manifest.json}
+        {--force : Nao pedir confirmacao}';
+
+    protected $description = 'Restaura um ficheiro .sql ou .sql.gz para uma base de dados.';
+
+    private ?string $tempDirectory = null;
 
     public function handle(): int
     {
-        if (!MySqlRunner::isAvailable()) {
-            $this->error('mysqldump ou mysql nao encontrados no PATH.');
-            return Command::FAILURE;
+        try {
+            return $this->restore();
+        } finally {
+            if ($this->tempDirectory !== null) {
+                File::deleteDirectory($this->tempDirectory);
+            }
+        }
+    }
+
+    private function restore(): int
+    {
+        if (!$this->requireBinaries('mysql')) {
+            return self::FAILURE;
         }
 
-        $file = $this->argument('file');
+        $connectionName = $this->option('connection');
         $targetDatabase = $this->option('database');
-        $specificConnection = $this->option('connection');
-        $isGzip = $this->option('gzip') || str_ends_with(strtolower($file), '.gz');
 
-        if (!File::exists($file)) {
-            $this->error("Ficheiro [{$file}] nao encontrado.");
-            return Command::FAILURE;
-        }
-
-        $ext = $isGzip ? '.sql.gz' : '.sql';
-        if (!str_ends_with(strtolower($file), $ext)) {
-            $this->warn("O ficheiro [{$file}] nao parece ser um ficheiro {$ext}.");
-        }
-
-        if (!$specificConnection) {
+        if (!$connectionName) {
             $this->error('Especifique a conexao de destino com --connection=');
-            return Command::FAILURE;
+
+            return self::FAILURE;
         }
 
         if (!$targetDatabase) {
             $this->error('Especifique a base de dados de destino com --database=');
-            return Command::FAILURE;
+
+            return self::FAILURE;
         }
 
-        $this->applyTimeout();
-
-        $dbMsg = " a base de dados [{$targetDatabase}] na conexao [{$specificConnection}]";
-        if (!$this->confirmDestructiveOperation("Tem a certeza que deseja RESTAURAR o ficheiro [{$file}]{$dbMsg}?")) {
-            return Command::SUCCESS;
+        if (($connections = $this->connections($connectionName)) === null) {
+            return self::FAILURE;
         }
 
-        $connections = MySqlConnectionResolver::resolve($specificConnection);
+        $file = $this->resolveFile($connectionName);
 
-        if (!isset($connections[$specificConnection])) {
-            $this->error("Conexao [{$specificConnection}] nao encontrada ou invalida.");
-            return Command::FAILURE;
+        if ($file === null) {
+            return self::FAILURE;
         }
 
-        $connection = $connections[$specificConnection];
+        $isGzip = $this->option('gzip') || str_ends_with(strtolower($file), '.gz');
 
-        $this->warn("Restaurando [{$file}] para base de dados [{$targetDatabase}] na conexao [{$specificConnection}]...");
+        if (!str_ends_with(strtolower($file), $isGzip ? '.sql.gz' : '.sql')) {
+            $this->warn("O ficheiro [{$file}] nao parece ser um ficheiro " . ($isGzip ? '.sql.gz' : '.sql') . '.');
+        }
 
-        $runner = new MySqlRunner($connection, $this);
-        $defaultsArg = $runner->getDefaultsFileArg();
+        if (!$this->option('skip-verify')) {
+            $verified = Manifest::verify($file);
 
-        $initCommands = $this->buildInitCommands();
+            if ($verified === false) {
+                $this->error("Checksum invalido: o ficheiro [{$file}] esta corrompido ou foi alterado. Use --skip-verify para ignorar.");
 
-        if ($isGzip) {
-            $command = sprintf(
-                'gunzip < %s | mysql %s --init-command=%s %s',
-                escapeshellarg($file),
-                $defaultsArg,
-                escapeshellarg($initCommands),
-                escapeshellarg($targetDatabase)
+                return self::FAILURE;
+            }
+
+            $this->comment($verified ? 'Checksum SHA-256 verificado.' : 'Sem manifest.json: checksum nao verificado.');
+        }
+
+        if (!$this->confirmDestructiveOperation("Tem a certeza que deseja RESTAURAR [{$file}] na base de dados [{$targetDatabase}] da conexao [{$connectionName}]?")) {
+            return self::SUCCESS;
+        }
+
+        $client = new MySqlClient($connections[$connectionName]);
+
+        $this->warn("A restaurar [{$file}] para a base de dados [{$targetDatabase}]...");
+
+        $input = fopen(($isGzip ? 'compress.zlib://' : '') . $file, 'rb');
+
+        if ($input === false) {
+            $this->error("Nao foi possivel abrir [{$file}].");
+
+            return self::FAILURE;
+        }
+
+        try {
+            if ($this->option('create')) {
+                $client->statement('CREATE DATABASE IF NOT EXISTS ' . MySqlClient::quoteIdentifier($targetDatabase));
+            }
+
+            $client->restore(
+                config('angelohd-backup.restore.strip_definers', true) ? DefinerFilter::chunks($input) : $input,
+                $targetDatabase
             );
-        } else {
-            $command = sprintf(
-                'mysql %s --init-command=%s %s < %s',
-                $defaultsArg,
-                escapeshellarg($initCommands),
-                escapeshellarg($targetDatabase),
-                escapeshellarg($file)
-            );
+        } catch (BackupException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        } finally {
+            if (is_resource($input)) {
+                fclose($input);
+            }
         }
 
-        $result = $runner->execute($command);
+        $this->info("Ficheiro restaurado com sucesso na base de dados [{$targetDatabase}].");
 
-        if ($result === 0) {
-            $this->info("Ficheiro [{$file}] restaurado com sucesso na base de dados [{$targetDatabase}].");
-            return Command::SUCCESS;
-        }
-
-        $this->error("Erro ao restaurar ficheiro na base de dados [{$targetDatabase}].");
-        return Command::FAILURE;
+        return self::SUCCESS;
     }
 
-    private function buildInitCommands(): string
+    private function resolveFile(string $connectionName): ?string
     {
-        $commands = [];
+        if (!$this->option('latest')) {
+            $file = $this->argument('file');
 
-        if (config('angelohd-backup.restore.disable_foreign_key_checks', true)) {
-            $commands[] = 'SET FOREIGN_KEY_CHECKS = 0';
+            if (!$file) {
+                $this->error('Indique o ficheiro a restaurar ou use --latest.');
+
+                return null;
+            }
+
+            if (!File::isFile($file)) {
+                $this->error("Ficheiro [{$file}] nao encontrado.");
+
+                return null;
+            }
+
+            return $file;
         }
 
-        if (config('angelohd-backup.restore.disable_unique_checks', true)) {
-            $commands[] = 'SET UNIQUE_CHECKS = 0';
+        $latest = (new BackupRepository($this->backupPath()))->latest();
+
+        if ($latest === null) {
+            $this->error("Nenhum backup encontrado em [{$this->backupPath()}].");
+
+            return null;
         }
 
-        return implode('; ', $commands);
+        $this->comment("Backup mais recente: {$latest['name']}");
+
+        $file = $latest['type'] === 'zip'
+            ? $this->extractFromZip($latest['path'], $connectionName)
+            : $this->findDump($latest['path'], $connectionName);
+
+        if ($file === null) {
+            $this->error("O backup [{$latest['name']}] nao contem a conexao [{$connectionName}].");
+        }
+
+        return $file;
     }
 
-    private function applyTimeout(): void
+    private function findDump(string $directory, string $connectionName): ?string
     {
-        $timeout = (int) config('angelohd-backup.timeout', 0);
-        if ($timeout > 0) {
-            set_time_limit($timeout);
-        } else {
-            set_time_limit(0);
+        foreach (['.sql.gz', '.sql'] as $ext) {
+            $candidate = $directory . DIRECTORY_SEPARATOR . $connectionName . $ext;
+            if (is_file($candidate)) {
+                return $candidate;
+            }
         }
+
+        return null;
+    }
+
+    private function extractFromZip(string $zipPath, string $connectionName): ?string
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->error('ext-zip nao esta disponivel para ler o ficheiro ZIP.');
+
+            return null;
+        }
+
+        $zip = new ZipArchive;
+
+        if ($zip->open($zipPath) !== true) {
+            $this->error("Nao foi possivel abrir [{$zipPath}].");
+
+            return null;
+        }
+
+        $folder = basename($zipPath, '.zip');
+        $wanted = array_map(
+            fn ($name) => "{$folder}/{$name}",
+            [$connectionName . '.sql.gz', $connectionName . '.sql', Manifest::FILE]
+        );
+        $entries = array_values(array_filter($wanted, fn ($entry) => $zip->locateName($entry) !== false));
+
+        $this->tempDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'angelohd-restore-' . bin2hex(random_bytes(6));
+        $extracted = $entries !== [] && $zip->extractTo($this->tempDirectory, $entries);
+        $zip->close();
+
+        return $extracted ? $this->findDump($this->tempDirectory . DIRECTORY_SEPARATOR . $folder, $connectionName) : null;
     }
 }

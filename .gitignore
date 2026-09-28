@@ -1,3 +1,38 @@
+# Dependências (instaladas com composer install)
 /vendor/
 /composer.lock
-/.claude
+
+# Configurações locais que substituem os ficheiros .dist
+/phpunit.xml
+/phpstan.neon
+.env
+.env.*
+
+# Caches e relatórios de testes / análise
+/.phpunit.cache/
+.phpunit.result.cache
+/build/
+/coverage/
+
+# Backups de bases de dados: nunca devem ir para o repositório
+*.sql
+*.sql.gz
+/backups-databases/
+/storage/
+
+# Ficheiros temporários de credenciais do MySQL
+mycnf_*
+
+# Ferramentas locais e editores
+/.claude/
+/.idea/
+/.vscode/
+*.swp
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
