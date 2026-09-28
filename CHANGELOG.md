@@ -6,7 +6,7 @@ Todas as alterações relevantes deste pacote. O projecto segue [Semantic Versio
 
 ### Quebra de compatibilidade
 
-- Requer PHP 8.1+ (antes 8.0), por causa do `Process` do Laravel.
+- Requer PHP 8.2+ e Laravel 11, 12 ou 13 (antes PHP 8.0 e Laravel 10–12). O Laravel 10 já não recebe correcções de segurança.
 - As pastas de backup passam a usar o formato `AAAA-mm-dd_HH-ii-ss` (antes `dd-mm-AAAA_H-i-s`). Os backups antigos continuam a ser listados, limpos e restaurados.
 - `drop-all-databases` pede confirmação em qualquer ambiente, não só em produção.
 - Removida a opção de configuração `compression.command` (a compressão gzip é feita em PHP).
@@ -35,7 +35,7 @@ Todas as alterações relevantes deste pacote. O projecto segue [Semantic Versio
 - Configuração do caminho dos binários (`binaries`).
 - `BackupManager` para fazer backups a partir do código.
 - Mensagens de erro do MySQL mostradas sem precisar de `-v`.
-- Testes (PHPUnit + Testbench, incluindo integração com MySQL), Larastan, Pint e GitHub Actions.
+- Testes (PHPUnit + Testbench, incluindo integração com MySQL), Larastan, Pint e GitHub Actions (PHP 8.2 + Laravel 11, PHP 8.3 + Laravel 12, PHP 8.4 + Laravel 13).
 
 ### Alterado
 

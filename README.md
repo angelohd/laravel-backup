@@ -12,8 +12,8 @@ Biblioteca Laravel para fazer backup, restauro e gestão de bases de dados MySQL
 
 ## Requisitos
 
-- PHP 8.1+
-- Laravel 10.x / 11.x / 12.x
+- PHP 8.2+ (8.3+ para Laravel 13)
+- Laravel 11.x / 12.x / 13.x
 - Binários `mysqldump` e `mysql` (no PATH ou configurados em `angelohd-backup.binaries`)
 - MySQL 5.7+ ou MariaDB 10.2+
 - `ext-zip` apenas para a opção `--zip`
