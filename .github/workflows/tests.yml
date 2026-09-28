@@ -54,6 +54,36 @@ jobs:
         env:
           BACKUP_TEST_DB_PASSWORD: root
 
+  guzzle-versions:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        guzzle: ['^7.15.2', '^8.0.1']
+
+    name: Guzzle ${{ matrix.guzzle }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, zlib
+          coverage: none
+
+      - name: Instalar dependencias
+        run: |
+          composer require "guzzlehttp/guzzle:${{ matrix.guzzle }}" --no-interaction --no-update
+          composer update --prefer-dist --no-interaction --with-all-dependencies
+
+      - name: Versao instalada
+        run: composer show guzzlehttp/guzzle | grep -E "^(name|versions)"
+
+      - name: Testes
+        run: vendor/bin/phpunit --testsuite Unit,Feature
+
   quality:
     runs-on: ubuntu-latest
     steps:

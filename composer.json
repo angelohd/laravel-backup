@@ -42,7 +42,7 @@
     "require": {
         "php": "^8.2",
         "ext-zlib": "*",
-        "guzzlehttp/guzzle": "^7.5",
+        "guzzlehttp/guzzle": "^7.15.2 || ^8.0.1",
         "illuminate/console": "^11.0 || ^12.0 || ^13.0",
         "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
         "illuminate/filesystem": "^11.0 || ^12.0 || ^13.0",

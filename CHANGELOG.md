@@ -2,7 +2,16 @@
 
 Todas as alterações relevantes deste pacote. O projecto segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
-## [2.0.0] - Por publicar
+## [2.1.0] - 2026-09-28
+
+### Corrigido
+
+- **O pacote não instalava em projectos com Guzzle 8.** A constraint `guzzlehttp/guzzle: ^7.5` impedia a instalação em qualquer projecto onde o Composer tivesse resolvido o Guzzle para a série 8 — o que passou a acontecer com frequência, já que o Laravel 13 aceita `^7.8.2 || ^8.0`. A constraint passou a `^7.15.2 || ^8.0.1`, cobrindo ambos os ramos.
+- O mínimo foi fixado em `7.15.2` e `8.0.1` porque abaixo dessas versões o Guzzle é afectado por `CVE-2026-69246` e `CVE-2026-69245`.
+
+A biblioteca nunca usa classes `GuzzleHttp\` directamente — apenas a facade `Http` do Laravel — pelo que a compatibilidade com a série 8 não exige alterações ao código. A CI passa a testar ambos os ramos do Guzzle.
+
+## [2.0.0] - 2026-09-28
 
 ### Quebra de compatibilidade
 
