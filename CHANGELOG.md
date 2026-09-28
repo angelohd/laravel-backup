@@ -23,6 +23,7 @@ Todas as alterações relevantes deste pacote. O projecto segue [Semantic Versio
 - Passwords com `#`, `;`, espaços, aspas ou `\` partiam o ficheiro de credenciais.
 - O restauro falhava quando o dump continha `DEFINER` de outro utilizador.
 - A opção `supported_drivers` era ignorada.
+- As notificações Slack falhavam em Laravel 10 por falta do Guzzle (agora é dependência do pacote).
 
 ### Adicionado
 
