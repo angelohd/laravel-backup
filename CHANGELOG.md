@@ -35,7 +35,7 @@ Todas as alterações relevantes deste pacote. O projecto segue [Semantic Versio
 - Configuração do caminho dos binários (`binaries`).
 - `BackupManager` para fazer backups a partir do código.
 - Mensagens de erro do MySQL mostradas sem precisar de `-v`.
-- Testes (PHPUnit + Testbench, incluindo integração com MySQL), Larastan, Pint e GitHub Actions (PHP 8.2 + Laravel 11, PHP 8.3 + Laravel 12, PHP 8.4 + Laravel 13).
+- Testes (PHPUnit + Testbench, incluindo integração com MySQL), Larastan, Pint e GitHub Actions (PHP 8.2–8.4 × Laravel 11–13).
 
 ### Alterado
 
